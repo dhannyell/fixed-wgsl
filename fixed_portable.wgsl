@@ -55,6 +55,15 @@ fn mag32(v: i32) -> u32 {
     return select(u, 0u - u, v < 0);
 }
 
+fn q16_square_le_scaled_raw(root: u32, raw: u32) -> bool {
+    let square = umul_32(root, root);
+    let lo = raw << 16u;
+    let hi = raw >> 16u;
+
+    return square.y < hi ||
+        (square.y == hi && square.x <= lo);
+}
+
 fn q16_mul(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
     let neg = (a.v < 0) != (b.v < 0);
     let p = umul_32(mag32(a.v), mag32(b.v));

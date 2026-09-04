@@ -38,6 +38,23 @@ fn q16_sub(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
     return Q16(select(res, Q16_MIN.v, neg_overflow));
 }
 
+fn q16_sqrt(a: Q16, sat: ptr<function, Sat>) -> Q16 {
+    if (a.v < 0) {
+        (*sat).fault += 1u;
+        return Q16(0);
+    }
+
+    let raw = u32(a.v);
+
+    var root = u32(sqrt(f32(raw)) * 256.0);
+
+    while (q16_square_le_scaled_raw(root + 1u, raw)) {
+        root += 1u;
+    }
+
+    return Q16(i32(root));
+}
+
 fn q16_neg(a: Q16, sat: ptr<function, Sat>) -> Q16 {
     let is_min = a.v == Q16_MIN.v;
     (*sat).count += u32(is_min);

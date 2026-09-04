@@ -50,3 +50,7 @@ fn q16_div(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
     let r = select(i32(mag), -i32(mag), neg); // i32(2^31) wraps to MIN; -MIN is MIN
     return Q16(r);
 }
+
+fn q16_square_le_scaled_raw(root: u32, raw: u32) -> bool {
+    return u64(root) * u64(root) <= (u64(raw) << 16u);
+}
