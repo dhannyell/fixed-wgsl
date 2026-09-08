@@ -107,3 +107,15 @@ fn q16_div(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
     let r   = select(i32(mag), -i32(mag), neg); // i32(2^31) wraps to MIN; -MIN is MIN
     return Q16(r);
 }
+
+fn q48_add(a: Q48, b: Q48, sat: ptr<function, Sat>) -> Q48 {
+    let lo = a.lo + b.lo;
+    let hi = a.hi + b.hi + i32(lo < a.lo);
+    let overflow = ((a.hi >= 0) == (b.hi >= 0)) && ((hi >= 0) != (a.hi >= 0));
+    (*sat).count += u32(overflow);
+    // MAX when a is non-negative, MIN otherwise; same as fixed.
+    let neg = a.hi < 0;
+    let sat_lo = select(Q48_MAX.lo, Q48_MIN.lo, neg);
+    let sat_hi = select(Q48_MAX.hi, Q48_MIN.hi, neg);
+    return Q48(select(lo, sat_lo, overflow), select(hi, sat_hi, overflow));
+}

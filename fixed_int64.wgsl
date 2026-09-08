@@ -54,3 +54,27 @@ fn q16_div(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
 fn q16_square_le_scaled_raw(root: u32, raw: u32) -> bool {
     return u64(root) * u64(root) <= (u64(raw) << 16u);
 }
+
+fn q48_add(a: Q48, b: Q48, sat: ptr<function, Sat>) -> Q48 {
+    // u32 -> i64 sign-extends on some backends; go through u64 to zero-extend.
+    let a_raw = (i64(a.hi) << 32u) | i64(u64(a.lo));
+    let b_raw = (i64(b.hi) << 32u) | i64(u64(b.lo));
+    
+    let res = a_raw + b_raw;
+    
+    let overflow = ((a_raw >= 0) == (b_raw >= 0)) && ((res >= 0) != (a_raw >= 0));
+    (*sat).count += u32(overflow);
+    
+    let neg = a_raw < 0;
+    let sat_lo = select(Q48_MAX.lo, Q48_MIN.lo, neg);
+    let sat_hi = select(Q48_MAX.hi, Q48_MIN.hi, neg);
+    
+    let res_lo = u32(res & 4294967295);
+    
+    let res_hi = i32(res >> 32u);
+    
+    return Q48(
+        select(res_lo, sat_lo, overflow), 
+        select(res_hi, sat_hi, overflow)
+    );
+}
