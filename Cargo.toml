@@ -6,3 +6,7 @@ edition = "2024"
 [dependencies]
 pollster = "0.4"
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "vulkan", "dx12", "metal", "static-dxc", "wgsl"] }
+
+[[bin]]
+name = "bench"
+path = "src/bin/bench.rs"

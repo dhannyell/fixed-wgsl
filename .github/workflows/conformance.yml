@@ -12,6 +12,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  FIXED_REF: v0.8.1
 
 jobs:
   linux-lavapipe:
@@ -28,9 +29,14 @@ jobs:
           echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
           echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
       - run: vulkaninfo --summary
-      - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
         env:
           FIXED_WGSL_BACKENDS: vulkan
+          FIXED_WGSL_REQUIRE_INT64: "1"
 
   windows-warp:
     runs-on: windows-latest
@@ -46,7 +52,11 @@ jobs:
           }
           Add-Content -Path $env:GITHUB_PATH -Value $bin
         shell: pwsh
-      - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
         env:
           FIXED_WGSL_BACKENDS: dx12
           WGPU_DX12_COMPILER: dxc
@@ -57,9 +67,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
         env:
           FIXED_WGSL_BACKENDS: metal
+          FIXED_WGSL_REQUIRE_INT64: "1"
 
   translate:
     runs-on: ubuntu-latest
