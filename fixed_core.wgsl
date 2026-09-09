@@ -46,7 +46,13 @@ fn q16_sqrt(a: Q16, sat: ptr<function, Sat>) -> Q16 {
 
     let raw = u32(a.v);
 
+    // The f32 estimate may be a little above or below the actual root.
+    // Adjust it down or up until we find the largest root that fits.
     var root = u32(sqrt(f32(raw)) * 256.0);
+
+    while (root > 0u && !q16_square_le_scaled_raw(root, raw)) {
+        root -= 1u;
+    }
 
     while (q16_square_le_scaled_raw(root + 1u, raw)) {
         root += 1u;
