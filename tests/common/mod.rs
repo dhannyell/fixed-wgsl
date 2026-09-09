@@ -108,7 +108,10 @@ fn open(backend: &'static str, bits: wgpu::Backends, native: bool) -> Result<Gpu
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
-                force_fallback_adapter: false,
+                // FIXED_WGSL_FALLBACK_ADAPTER=1 asks for the software adapter, and
+                // reproduces a CI runner that has no GPU at all.
+                force_fallback_adapter: std::env::var_os("FIXED_WGSL_FALLBACK_ADAPTER")
+                    .is_some(),
                 apply_limit_buckets: false,
             })
             .await

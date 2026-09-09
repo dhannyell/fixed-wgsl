@@ -1,8 +1,0 @@
-[package]
-name = "fixed-wgsl-tests"
-version = "0.1.0"
-edition = "2024"
-
-[dev-dependencies]
-pollster = "0.4"
-wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "dx12", "static-dxc", "wgsl"] }

@@ -16,15 +16,17 @@ env:
 jobs:
   linux-lavapipe:
     runs-on: ubuntu-latest
-    env:
-      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       - run: |
           sudo apt-get update
           sudo apt-get install -y mesa-vulkan-drivers libvulkan1 vulkan-tools
+      - run: |
+          ls -l /usr/share/vulkan/icd.d/
+          icd=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
       - run: vulkaninfo --summary
       - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
         env:
@@ -33,17 +35,27 @@ jobs:
   windows-warp:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
+      - run: |
+          curl.exe -sSL -o dxc.zip https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2607/dxc_2026_07_29.zip
+          Expand-Archive -Path dxc.zip -DestinationPath dxc -Force
+          $bin = Join-Path $PWD 'dxc/bin/x64'
+          foreach ($dll in 'dxcompiler.dll', 'dxil.dll') {
+            if (-not (Test-Path (Join-Path $bin $dll))) { throw "$dll missing" }
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+        shell: pwsh
       - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
         env:
           FIXED_WGSL_BACKENDS: dx12
-          WGPU_DX12_COMPILER: staticdxc
+          WGPU_DX12_COMPILER: dxc
+          FIXED_WGSL_REQUIRE_INT64: "1"
 
   macos-metal:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
         env:
@@ -52,7 +64,7 @@ jobs:
   translate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       - run: cargo install naga-cli --locked --version ^30
       - run: mkdir -p build
