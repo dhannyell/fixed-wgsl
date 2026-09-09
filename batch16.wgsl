@@ -90,3 +90,64 @@ fn sqrt16(
     flush_saturation(sat, lid);
 }
 
+@compute @workgroup_size(256)
+fn min16(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let i = gid.x;
+    if (i < arrayLength(&dst)) {
+        dst[i] = q16_min(a[i], b[i]);
+    }
+    flush_saturation(Sat(0u, 0u), lid);
+}
+
+@compute @workgroup_size(256)
+fn max16(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let i = gid.x;
+    if (i < arrayLength(&dst)) {
+        dst[i] = q16_max(a[i], b[i]);
+    }
+    flush_saturation(Sat(0u, 0u), lid);
+}
+
+// Masks leave the shader as all-ones or zero so the host can compare bits.
+@compute @workgroup_size(256)
+fn greater16(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let i = gid.x;
+    if (i < arrayLength(&dst)) {
+        dst[i] = Q16(select(0, -1, q16_greater(a[i], b[i])));
+    }
+    flush_saturation(Sat(0u, 0u), lid);
+}
+
+@compute @workgroup_size(256)
+fn equals16(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let i = gid.x;
+    if (i < arrayLength(&dst)) {
+        dst[i] = Q16(select(0, -1, q16_eq(a[i], b[i])));
+    }
+    flush_saturation(Sat(0u, 0u), lid);
+}
+
+// The mask comes from greater, as in the solver; the result must equal max16.
+@compute @workgroup_size(256)
+fn blend16(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let i = gid.x;
+    if (i < arrayLength(&dst)) {
+        dst[i] = q16_blend(a[i], b[i], q16_greater(a[i], b[i]));
+    }
+    flush_saturation(Sat(0u, 0u), lid);
+}
