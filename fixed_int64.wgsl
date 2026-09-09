@@ -55,9 +55,15 @@ fn q16_square_le_scaled_raw(root: u32, raw: u32) -> bool {
     return u64(root) * u64(root) <= (u64(raw) << 16u);
 }
 
-fn q48_to_i64(a: Q48) -> i64 {
-    // u32 -> i64 sign-extends on some backends; go through u64 to zero-extend.
-    return (i64(a.hi) << 32u) | i64(u64(a.lo));
+// Use u64 here because unsigned overflow wraps consistently in HLSL.
+// Signed overflow is undefined, so DXC may remove overflow checks.
+// Read the sign from the i32 high word instead of shifting a 64-bit value.
+fn q48_to_u64(a: Q48) -> u64 {
+    return (u64(bitcast<u32>(a.hi)) << 32u) | u64(a.lo);
+}
+
+fn q48_from_u64(x: u64) -> Q48 {
+    return Q48(u32(x & 4294967295lu), bitcast<i32>(u32(x >> 32u)));
 }
 
 fn q48_from_i64(x: i64) -> Q48 {
@@ -65,21 +71,19 @@ fn q48_from_i64(x: i64) -> Q48 {
 }
 
 fn q48_add(a: Q48, b: Q48, sat: ptr<function, Sat>) -> Q48 {
-    let a_raw = q48_to_i64(a);
-    let b_raw = q48_to_i64(b);
-    let res = a_raw + b_raw;
-    let overflow = ((a_raw >= 0) == (b_raw >= 0)) && ((res >= 0) != (a_raw >= 0));
+    let res = q48_from_u64(q48_to_u64(a) + q48_to_u64(b));
+    let neg = a.hi < 0;
+    let overflow = (neg == (b.hi < 0)) && ((res.hi < 0) != neg);
     (*sat).count += u32(overflow);
-    return q48_saturate(q48_from_i64(res), a_raw < 0, overflow);
+    return q48_saturate(res, neg, overflow);
 }
 
 fn q48_sub(a: Q48, b: Q48, sat: ptr<function, Sat>) -> Q48 {
-    let a_raw = q48_to_i64(a);
-    let b_raw = q48_to_i64(b);
-    let res = a_raw - b_raw;
-    let overflow = ((a_raw >= 0) != (b_raw >= 0)) && ((res >= 0) != (a_raw >= 0));
+    let res = q48_from_u64(q48_to_u64(a) - q48_to_u64(b));
+    let neg = a.hi < 0;
+    let overflow = (neg != (b.hi < 0)) && ((res.hi < 0) != neg);
     (*sat).count += u32(overflow);
-    return q48_saturate(q48_from_i64(res), a_raw < 0, overflow);
+    return q48_saturate(res, neg, overflow);
 }
 
 fn q48_mul_add16(q: Q48, a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q48 {
