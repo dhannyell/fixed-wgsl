@@ -107,31 +107,31 @@ struct Stats {
 }
 
 #[test]
-#[ignore = "benchmark manual: rode explicitamente"]
+#[ignore = "benchmark manual: run explicitly"]
 fn bench_q16_div_portable_vs_native() {
     bench_q16_operation("div16");
 }
 
 #[test]
-#[ignore = "benchmark manual: rode explicitamente"]
+#[ignore = "benchmark manual: run explicitly"]
 fn bench_q16_mul_portable_vs_native() {
     bench_q16_operation("mul16");
 }
 
 #[test]
-#[ignore = "benchmark manual: rode explicitamente"]
+#[ignore = "benchmark manual: run explicitly"]
 fn bench_q16_sqrt_portable_vs_native() {
     bench_q16_operation("sqrt16");
 }
 
 #[test]
-#[ignore = "benchmark manual: rode explicitamente"]
+#[ignore = "benchmark manual: run explicitly"]
 fn bench_q48_add_portable_vs_native() {
     bench_q16_operation("add48");
 }
 
 #[test]
-#[ignore = "benchmark manual: rode explicitamente"]
+#[ignore = "benchmark manual: run explicitly"]
 fn bench_q48_to_q16_portable_vs_native() {
     bench_q16_operation("to16_48");
 }
@@ -166,7 +166,7 @@ fn bench_q16_operation(entry_point: &'static str) {
         let portable_ns = portable.median.as_nanos() as f64;
         let native_ns = native.median.as_nanos() as f64;
 
-        // Fórmula explícita: negativo significa que native-i64 é mais rápido.
+        // Explicit formula: negative means native-i64 is faster.
         let native_vs_portable_percent = (native_ns / portable_ns - 1.0) * 100.0;
         let speedup = portable_ns / native_ns;
 
@@ -193,13 +193,13 @@ impl Bench {
                 apply_limit_buckets: false,
             })
             .await
-            .expect("nenhum adapter Vulkan encontrado");
+            .expect("no Vulkan adapter found");
 
         let required_features = wgpu::Features::SHADER_INT64;
 
         assert!(
             adapter.features().contains(required_features),
-            "adapter não suporta SHADER_INT64; benchmark comparativo indisponível"
+            "Adapter does not support SHADER_INT64; comparative benchmark unavailable."
         );
 
         let (device, queue) = adapter
@@ -212,7 +212,7 @@ impl Bench {
                 trace: Default::default(),
             })
             .await
-            .expect("falha ao criar device com SHADER_INT64");
+            .expect("Failed to create device with SHADER_INT64");
 
         let op = op(entry_point);
         let byte_size = u64::from(elements) * op.element_bytes;
@@ -315,7 +315,7 @@ impl Bench {
             }
         }
 
-        // A codificação não entra na medida: cronometra submit + GPU + wait.
+        // Coding does not fit: time submit + GPU + wait.
         let command_buffer = encoder.finish();
         let start = Instant::now();
 
@@ -351,8 +351,8 @@ fn build_backend(
         module: &module,
         entry_point: Some(entry_point),
 
-        // Telemetria desabilitada: atomics não devem contaminar a comparação
-        // entre os algoritmos aritméticos.
+        // Telemetry disabled: atomics must not contaminate the comparison
+        // between the arithmetic algorithms.
         compilation_options: wgpu::PipelineCompilationOptions {
             constants: &[("COUNT_SATURATION", 0.0)],
             zero_initialize_workgroup_memory: true,
@@ -427,7 +427,7 @@ fn make_inputs(elements: u32, non_negative_a: bool) -> (Vec<i32>, Vec<i32>) {
             .wrapping_add(1);
         let mut denominator = (state >> 32) as u32 as i32;
 
-        // Divisão por zero é testada na suíte de conformidade, não no benchmark.
+        // Division by zero is tested in the conformance suite, not in the benchmark.
         if denominator == 0 {
             denominator = 1;
         }
