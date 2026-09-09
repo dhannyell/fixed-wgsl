@@ -1,0 +1,68 @@
+name: conformance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-lavapipe:
+    runs-on: ubuntu-latest
+    env:
+      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1 vulkan-tools
+      - run: vulkaninfo --summary
+      - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
+        env:
+          FIXED_WGSL_BACKENDS: vulkan
+
+  windows-warp:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
+        env:
+          FIXED_WGSL_BACKENDS: dx12
+          WGPU_DX12_COMPILER: staticdxc
+
+  macos-metal:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release --test q16_gpu --test q48_gpu -- --nocapture
+        env:
+          FIXED_WGSL_BACKENDS: metal
+
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install naga-cli --locked --version ^30
+      - run: mkdir -p build
+      - run: |
+          cat fixed_core.wgsl fixed_portable.wgsl batch16.wgsl > build/portable.wgsl
+          cat fixed_core.wgsl fixed_int64.wgsl batch16.wgsl > build/native.wgsl
+      - run: |
+          for variant in portable native; do
+            for ext in spv metal hlsl; do
+              naga build/$variant.wgsl build/$variant.$ext
+              test -s build/$variant.$ext
+            done
+          done
