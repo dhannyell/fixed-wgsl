@@ -1,5 +1,6 @@
-use std::borrow::Cow;
-use std::sync::mpsc;
+mod common;
+
+use common::{Gpu, i32_bytes, pipeline, read_u32s, readback_buffer, shader, storage_buffer};
 
 const WGSL_PORTABLE: &str = concat!(
     include_str!("../fixed_core.wgsl"),
@@ -184,187 +185,102 @@ fn run_q16_binary(entry_point: &str, cases: &[Case]) {
 }
 
 fn run_q16_binary_variant(source: &str, native: bool, entry_point: &str, cases: &[Case]) {
-    pollster::block_on(async {
-        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
-        instance_desc.backends = wgpu::Backends::VULKAN;
+    common::for_each_gpu(native, |gpu| run_q16_on(gpu, source, entry_point, cases));
+}
 
-        let instance = wgpu::Instance::new(instance_desc);
+fn run_q16_on(gpu: &Gpu, source: &str, entry_point: &str, cases: &[Case]) {
+    let device = &gpu.device;
+    let queue = &gpu.queue;
+    let backend = gpu.backend;
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-                apply_limit_buckets: false,
-            })
-            .await
-            .expect("Failed to find an appropriate adapter");
+    let module = shader(device, source);
+    let pipeline = pipeline(device, &module, entry_point);
 
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("fixed-wgsl test device"),
-                required_features: if native {
-                    wgpu::Features::SHADER_INT64
-                } else {
-                    wgpu::Features::empty()
-                },
-                required_limits: wgpu::Limits::default(),
-                experimental_features: Default::default(),
-                memory_hints: Default::default(),
-                trace: Default::default(),
-            })
-            .await
-            .expect("Failed to create device");
+    let a: Vec<i32> = cases.iter().map(|c| c.a).collect();
+    let b: Vec<i32> = cases.iter().map(|c| c.b).collect();
 
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("fixed-wgsl test shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-        });
+    let data_bytes = (cases.len() * size_of::<i32>()) as u64;
+    let dst = storage_buffer(device, "dst", data_bytes);
+    let a_buffer = storage_buffer(device, "a", data_bytes);
+    let b_buffer = storage_buffer(device, "b", data_bytes);
+    let sat_out = storage_buffer(device, "sat_out", 8);
 
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some(entry_point),
-            layout: None,
-            module: &module,
-            entry_point: Some(entry_point),
-            compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &[("COUNT_SATURATION", 1.0)],
-                zero_initialize_workgroup_memory: true,
+    queue.write_buffer(&a_buffer, 0, &i32_bytes(&a));
+    queue.write_buffer(&b_buffer, 0, &i32_bytes(&b));
+    queue.write_buffer(&sat_out, 0, &[0; 8]);
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("q16 bindings"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: dst.as_entire_binding(),
             },
-            cache: None,
-        });
-
-        let a: Vec<i32> = cases.iter().map(|c| c.a).collect();
-        let b: Vec<i32> = cases.iter().map(|c| c.b).collect();
-
-        let data_bytes = (cases.len() * size_of::<i32>()) as u64;
-        let dst = storage_buffer(&device, "dst", data_bytes);
-        let a_buffer = storage_buffer(&device, "a", data_bytes);
-        let b_buffer = storage_buffer(&device, "b", data_bytes);
-        let sat_out = storage_buffer(&device, "sat_out", 8);
-
-        queue.write_buffer(&a_buffer, 0, &i32_bytes(&a));
-        queue.write_buffer(&b_buffer, 0, &i32_bytes(&b));
-        queue.write_buffer(&sat_out, 0, &[0; 8]);
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("q16 bindings"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: dst.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: a_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: b_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: sat_out.as_entire_binding(),
-                },
-            ],
-        });
-
-        let dst_readback = readback_buffer(&device, "dst readback", data_bytes);
-        let sat_readback = readback_buffer(&device, "sat readback", 8);
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("q16 test encoder"),
-        });
-
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some(entry_point),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups((cases.len() as u32).div_ceil(256), 1, 1);
-        }
-
-        encoder.copy_buffer_to_buffer(&dst, 0, &dst_readback, 0, data_bytes);
-        encoder.copy_buffer_to_buffer(&sat_out, 0, &sat_readback, 0, 8);
-        queue.submit([encoder.finish()]);
-
-        let got: Vec<i32> = read_u32s(&device, &dst_readback)
-            .into_iter()
-            .map(|v| i32::from_le_bytes(v.to_le_bytes()))
-            .collect();
-
-        let sat = read_u32s(&device, &sat_readback);
-        let expected: Vec<i32> = cases.iter().map(|c| c.want).collect();
-        let expected_saturations: u32 = cases.iter().map(|c| c.saturations).sum();
-
-        assert_eq!(got, expected, "{entry_point}: raw Q16 diverged");
-        assert_eq!(
-            sat,
-            vec![
-                expected_saturations,
-                cases.iter().map(|c| c.faults).sum::<u32>()
-            ],
-            "{entry_point}: telemetry diverged"
-        );
-    });
-}
-
-fn storage_buffer(device: &wgpu::Device, label: &str, size: u64) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size,
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    })
-}
-
-fn readback_buffer(device: &wgpu::Device, label: &str, size: u64) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size,
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
-}
-
-fn read_u32s(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u32> {
-    let slice = buffer.slice(..);
-    let (send, receive) = mpsc::channel();
-
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-        send.send(result).expect("failed to send map_async result");
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: a_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: b_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: sat_out.as_entire_binding(),
+            },
+        ],
     });
 
-    device
-        .poll(wgpu::PollType::wait_indefinitely())
-        .expect("failed to wait for GPU");
+    let dst_readback = readback_buffer(device, "dst readback", data_bytes);
+    let sat_readback = readback_buffer(device, "sat readback", 8);
 
-    receive
-        .recv()
-        .expect("map_async callback not called")
-        .expect("map_async failed");
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("q16 test encoder"),
+    });
 
-    let bytes = slice
-        .get_mapped_range()
-        .expect("failed to get mapped range");
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some(entry_point),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups((cases.len() as u32).div_ceil(256), 1, 1);
+    }
 
-    let values = bytes
-        .chunks_exact(4)
-        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+    encoder.copy_buffer_to_buffer(&dst, 0, &dst_readback, 0, data_bytes);
+    encoder.copy_buffer_to_buffer(&sat_out, 0, &sat_readback, 0, 8);
+    queue.submit([encoder.finish()]);
+
+    let got: Vec<i32> = read_u32s(device, &dst_readback)
+        .into_iter()
+        .map(|v| i32::from_le_bytes(v.to_le_bytes()))
         .collect();
 
-    drop(bytes);
-    buffer.unmap();
-    values
+    let sat = read_u32s(device, &sat_readback);
+    let expected: Vec<i32> = cases.iter().map(|c| c.want).collect();
+    let expected_saturations: u32 = cases.iter().map(|c| c.saturations).sum();
+
+    // Report the first divergence; whole vectors flood the output.
+    let mismatch = got.iter().zip(&expected).position(|(g, w)| g != w);
+    assert!(
+        mismatch.is_none() && got.len() == expected.len(),
+        "{entry_point} on {backend}: raw Q16 diverged at index {:?} (got {:?}, want {:?})",
+        mismatch,
+        mismatch.map(|i| got[i]),
+        mismatch.map(|i| expected[i]),
+    );
+    assert_eq!(
+        sat,
+        vec![
+            expected_saturations,
+            cases.iter().map(|c| c.faults).sum::<u32>()
+        ],
+        "{entry_point} on {backend}: telemetry diverged"
+    );
 }
 
-fn i32_bytes(values: &[i32]) -> Vec<u8> {
-    values.iter().flat_map(|v| v.to_le_bytes()).collect()
-}
 fn arithmetic_case(entry: &str, a: i32, b: i32) -> Case {
     if entry == "div16" && b == 0 {
         return Case {
