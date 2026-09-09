@@ -113,9 +113,28 @@ fn q48_add(a: Q48, b: Q48, sat: ptr<function, Sat>) -> Q48 {
     let hi = a.hi + b.hi + i32(lo < a.lo);
     let overflow = ((a.hi >= 0) == (b.hi >= 0)) && ((hi >= 0) != (a.hi >= 0));
     (*sat).count += u32(overflow);
-    // MAX when a is non-negative, MIN otherwise; same as fixed.
-    let neg = a.hi < 0;
-    let sat_lo = select(Q48_MAX.lo, Q48_MIN.lo, neg);
-    let sat_hi = select(Q48_MAX.hi, Q48_MIN.hi, neg);
-    return Q48(select(lo, sat_lo, overflow), select(hi, sat_hi, overflow));
+    return q48_saturate(Q48(lo, hi), a.hi < 0, overflow);
+}
+
+fn q48_sub(a: Q48, b: Q48, sat: ptr<function, Sat>) -> Q48 {
+    let lo = a.lo - b.lo;
+    let hi = a.hi - b.hi - i32(a.lo < b.lo);
+    let overflow = ((a.hi >= 0) != (b.hi >= 0)) && ((hi >= 0) != (a.hi >= 0));
+    (*sat).count += u32(overflow);
+    return q48_saturate(Q48(lo, hi), a.hi < 0, overflow);
+}
+
+// Signed 32x32 -> 64 product. Two Q16.16 factors give a Q32.32 value.
+fn smul_32(a: i32, b: i32) -> Q32 {
+    let neg = (a < 0) != (b < 0);
+    let p = umul_32(mag32(a), mag32(b));
+    // Two's complement of the pair when the sign is negative.
+    let lo = select(p.x, 0u - p.x, neg);
+    let hi = select(p.y, 0u - p.y - u32(p.x != 0u), neg);
+    return Q32(lo, bitcast<i32>(hi));
+}
+
+fn q48_mul_add16(q: Q48, a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q48 {
+    // q32_to_q48 floors the product to the Q48.16 grid; only the add saturates.
+    return q48_add(q, q32_to_q48(smul_32(a.v, b.v)), sat);
 }
