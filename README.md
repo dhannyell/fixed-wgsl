@@ -20,6 +20,8 @@ cat fixed_core.wgsl fixed_int64.wgsl batch16.wgsl > build/native.wgsl && naga bu
 
 It uses 64-bit integer variables and is not browser-compatible; the GPU must support 64-bit variables. In wgpu-native, you need to request the `SHADER_INT64` feature to request or check for support. It is generally faster than the portable version.
 
+On entry-level or integrated GPUs, the native version is generally faster because the bottleneck is pure arithmetic. On intermediate or high-end GPUs, the native version usually performs equal to or at least better than the portable version because the bottleneck becomes bandwidth.
+
 ## Run Benchmarks
 
 `cargo test --release --test bench -- --ignored --nocapture`

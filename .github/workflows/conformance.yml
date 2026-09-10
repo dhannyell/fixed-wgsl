@@ -1,0 +1,95 @@
+name: conformance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  FIXED_REF: v0.8.1
+
+jobs:
+  linux-lavapipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1 vulkan-tools
+      - run: |
+          ls -l /usr/share/vulkan/icd.d/
+          icd=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+      - run: vulkaninfo --summary
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
+        env:
+          FIXED_WGSL_BACKENDS: vulkan
+          FIXED_WGSL_REQUIRE_INT64: "1"
+
+  windows-warp:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          curl.exe -sSL -o dxc.zip https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2607/dxc_2026_07_29.zip
+          Expand-Archive -Path dxc.zip -DestinationPath dxc -Force
+          $bin = Join-Path $PWD 'dxc/bin/x64'
+          foreach ($dll in 'dxcompiler.dll', 'dxil.dll') {
+            if (-not (Test-Path (Join-Path $bin $dll))) { throw "$dll missing" }
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+        shell: pwsh
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
+        env:
+          FIXED_WGSL_BACKENDS: dx12
+          WGPU_DX12_COMPILER: dxc
+          FIXED_WGSL_REQUIRE_INT64: "1"
+
+  macos-metal:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
+        env:
+          FIXED_WGSL_BACKENDS: metal
+          FIXED_WGSL_REQUIRE_INT64: "1"
+
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install naga-cli --locked --version ^30
+      - run: mkdir -p build
+      - run: |
+          cat fixed_core.wgsl fixed_portable.wgsl batch16.wgsl > build/portable.wgsl
+          cat fixed_core.wgsl fixed_int64.wgsl batch16.wgsl > build/native.wgsl
+      - run: |
+          for variant in portable native; do
+            for ext in spv metal hlsl; do
+              naga build/$variant.wgsl build/$variant.$ext
+              test -s build/$variant.$ext
+            done
+          done
