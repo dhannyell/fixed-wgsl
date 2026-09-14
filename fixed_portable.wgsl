@@ -90,6 +90,35 @@ fn q16_mul(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
     return Q16(select(finite_raw, sat_raw, over));
 }
 
+// q16_mul_round returns a*b rounded to the nearest step, exact ties toward
+// positive infinity: floor((a*b + 2^15) / 2^16). On the magnitude, a positive
+// product adds 2^15 before the shift and a negative one adds 2^15 - 1.
+fn q16_mul_round(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
+    let neg = (a.v < 0) != (b.v < 0);
+    let p = umul_32(mag32(a.v), mag32(b.v));
+
+    let bias = select(0x8000u, 0x7fffu, neg);
+    let sum_lo = p.x + bias;
+    let sum_hi = p.y + u32(sum_lo < p.x);
+
+    let mag_lo = (sum_lo >> 16u) | (sum_hi << 16u);
+    let mag_hi = sum_hi >> 16u;
+
+    let limit = select(0x7fffffffu, 0x80000000u, neg);
+    let over = (mag_hi != 0u) || (mag_lo > limit);
+
+    (*sat).count += u32(over);
+
+    let finite_raw = select(
+        bitcast<i32>(mag_lo),
+        bitcast<i32>(0u - mag_lo),
+        neg,
+    );
+    let sat_raw = select(Q16_MAX.v, Q16_MIN.v, neg);
+
+    return Q16(select(finite_raw, sat_raw, over));
+}
+
 fn q16_div(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
     let div_zero = b.v == 0;
     (*sat).fault += u32(div_zero);
