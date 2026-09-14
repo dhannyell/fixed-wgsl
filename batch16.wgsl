@@ -76,6 +76,21 @@ fn mul16(
 }
 
 @compute @workgroup_size(256)
+fn mul_round16(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    var sat = Sat(0u, 0u);
+    let i = gid.x;
+
+    if (i < arrayLength(&dst)) {
+        dst[i] = q16_mul_round(a[i], b[i], &sat);
+    }
+
+    flush_saturation(sat, lid);
+}
+
+@compute @workgroup_size(256)
 fn sqrt16(
     @builtin(global_invocation_id) gid: vec3<u32>,
     @builtin(local_invocation_index) lid: u32,

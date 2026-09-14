@@ -2,7 +2,7 @@
 // writes the cases, this test replays them on every backend, and the comparison
 // is on raw bits. Generate the files with:
 //
-//   go run github.com/dhannyell/fixed/cmd/fixedtrace@<tag> -o build/traces
+//   go run -tags=fixed_satcounter github.com/dhannyell/fixed/cmd/fixedtrace@<tag> -o build/traces
 
 mod common;
 
@@ -17,10 +17,11 @@ const BATCH48: &str = include_str!("../batch48.wgsl");
 
 const SAT_BINDING: u32 = 3;
 
-const OPS16: [&str; 10] = [
+const OPS16: [&str; 11] = [
     "add16",
     "sub16",
     "mul16",
+    "mul_round16",
     "div16",
     "sqrt16",
     "min16",
@@ -370,7 +371,7 @@ fn read_trace(entry_point: &str) -> Trace {
     let text = std::fs::read_to_string(&path).unwrap_or_else(|err| {
         panic!(
             "cannot read {}: {err}\ngenerate the traces with:\n  \
-             go run github.com/dhannyell/fixed/cmd/fixedtrace@<tag> -o {}",
+             go run -tags=fixed_satcounter github.com/dhannyell/fixed/cmd/fixedtrace@<tag> -o {}",
             path.display(),
             trace_dir().display(),
         )

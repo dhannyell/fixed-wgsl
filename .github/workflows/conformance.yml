@@ -12,7 +12,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  FIXED_REF: v0.8.1
+  FIXED_REF: v1.0.1
 
 jobs:
   linux-lavapipe:
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: stable
-      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: go run -tags=fixed_satcounter github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
       - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
         env:
           FIXED_WGSL_BACKENDS: vulkan
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: stable
-      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: go run -tags=fixed_satcounter github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
       - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
         env:
           FIXED_WGSL_BACKENDS: dx12
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: stable
-      - run: go run github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
+      - run: go run -tags=fixed_satcounter github.com/dhannyell/fixed/cmd/fixedtrace@${{ env.FIXED_REF }} -o build/traces
       - run: cargo test --release --test q16_gpu --test q48_gpu --test trace -- --nocapture
         env:
           FIXED_WGSL_BACKENDS: metal
@@ -82,10 +82,20 @@ jobs:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       - run: cargo install naga-cli --locked --version ^30
+      - run: cargo install wesl-cli --locked --version ^0.4
       - run: mkdir -p build
       - run: |
           cat fixed_core.wgsl fixed_portable.wgsl batch16.wgsl > build/portable.wgsl
           cat fixed_core.wgsl fixed_int64.wgsl batch16.wgsl > build/native.wgsl
+          cat fixed_core.wgsl fixed_portable.wgsl batch48.wgsl > build/portable48.wgsl
+          cat fixed_core.wgsl fixed_int64.wgsl batch48.wgsl > build/native48.wgsl
+      - name: grammar
+        run: |
+          for variant in portable native portable48 native48; do
+            out=$(wesl check build/$variant.wgsl 2>&1)
+            echo "$variant: $out"
+            test "$out" = "OK"
+          done
       - run: |
           for variant in portable native; do
             for ext in spv metal hlsl; do

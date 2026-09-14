@@ -25,7 +25,18 @@ fn mag32(v: i32) -> u32 {
 }
 
 fn q16_mul(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
-    let p = i64(a.v) * i64(b.v) >> 16;
+    let p = (i64(a.v) * i64(b.v)) >> 16;
+    let hi = p > i64(Q16_MAX.v);
+    let lo = p < i64(Q16_MIN.v);
+
+    (*sat).count += u32(hi || lo);
+    return Q16(i32(select(select(p, i64(Q16_MAX.v), hi), i64(Q16_MIN.v), lo)));
+}
+
+// q16_mul_round rounds the product to the nearest step, ties toward positive
+// infinity. The arithmetic shift makes the +2^15 bias exact for both signs.
+fn q16_mul_round(a: Q16, b: Q16, sat: ptr<function, Sat>) -> Q16 {
+    let p = (i64(a.v) * i64(b.v) + 32768li) >> 16;
     let hi = p > i64(Q16_MAX.v);
     let lo = p < i64(Q16_MIN.v);
 
